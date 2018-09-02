@@ -9,7 +9,7 @@ function partsDoEvent {
 	local maxStage is -1.
 	if tag = "" and (defined stagingMaxStage)
 		set maxStage to stagingMaxStage-1. //see lib_staging
-	for p in ship:partsTagged(tag) {
+	for p in ship:partsDubbedPattern(tag) {
 		if p:stage >= maxStage and p:modules:contains(module) {
 			local m is p:getModule(module).
 			for e in m:allEventNames() {
@@ -21,6 +21,14 @@ function partsDoEvent {
 		}
 	}
 	return success.
+}
+
+function partsDoIt {
+	parameter module.
+	parameter action.
+	parameter tag is "".
+
+	partsDoAction(module, action, tag).
 }
 // actions are only accessible if VAB or SPH upgraded enough
 function partsDoAction {
@@ -34,7 +42,7 @@ function partsDoAction {
 		local maxStage is -1.
 		if tag = "" and (defined stagingMaxStage)
 			set maxStage to stagingMaxStage-1. //see lib_staging
-		for p in ship:partsTagged(tag) {
+		for p in ship:partsDubbedPattern(tag) {
 			if p:stage >= maxStage and p:modules:contains(module) {
 				local m is p:getModule(module).
 				for a in m:allActionNames() {
@@ -77,6 +85,16 @@ function partsDisableReactionWheels {
 function partsEnableReactionWheels {
 	parameter tag is "".
 	return partsDoAction("ModuleReactionWheel", "activate", tag).
+}
+
+function partsOpenTerminal {
+    PARAMETER TAG IS core:tag.
+    partsDoIt("kOSProcessor", "open", TAG).
+}
+
+function partsCloseTerminal {
+    PARAMETER TAG IS core:tag.
+    partsDoIt("kOSProcessor", "close", TAG).
 }
 
 function partsRetractRadiators {
@@ -216,4 +234,19 @@ function partsReverseThrust {
 
 function partsForwardThrust {
 	return partsDoAction("ModuleAnimateGeneric", "forward").
+}
+
+function partsHasEvent {
+    parameter module.
+    parameter event.
+    parameter tag is "".
+
+    local hasEvent to 0.
+    for p in ship:PARTSDUBBEDPATTERN(tag) for m in p:modules {
+        if m:contains(module) for e in p:getmodule(m):alleventnames {
+            if e:contains(event) set hasEvent to hasEvent + 1.
+        }
+    }
+    //print tag + ":" + module + ":" + event + " hasEvent count: " + hasEvent.
+    return (hasEvent>0).
 }

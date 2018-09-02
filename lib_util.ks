@@ -310,3 +310,115 @@ function utilDtTrue {
 	parameter obt is orbit.
 	return utilAngleTo360(utilMeanFromTrue(a) - utilMeanFromTrue(obt:trueAnomaly)) / 360 * obt:period.
 }
+
+
+// so other apps can be aware of node exec faults....sigh.
+global utilNodeFault to false.
+// warps to next Maneuver alarm if ealier than node.
+function utilNodeWarp {
+  parameter _nn.  // node
+  parameter _clobber is false.  // clobber alarms owned by current ship
+
+  local timeOff to 120. // 2 min
+  local kacProceedExec to true.  // proceed with node exec
+  if ADDONS:AVAILABLE("KAC") {
+    local alarmDone to false. 
+    local alarms to ADDONS:KAC:alarms.
+    if alarms:length > 0 { 
+      until (
+        ( alarms:length < 1 ) or
+        ( alarmDone )
+      ) 
+      {
+        local nodeHng to utilNodeHang(_nn).
+        local nextAlarmTime to round(nodeHng).
+        set alarms to ADDONS:KAC:alarms.
+        local alarm to alarms[0].  // init alarm just in case.        
+        for alrm in alarms {  // find earliest alarm, apparently they aren't in order...
+          local alrmRem to round(alrm:remaining).
+          if (nextAlarmTime > alrmRem) {
+            set alarm to alrm. 
+            set nextAlarmTime to alrmRem.
+          }
+        }
+        // offset time
+        local alarmTime to (alarm:remaining - timeOff).
+        // if alarm is within 2m of our node time.
+        if (nodeHng >= alarmTime) { // if alarm is first.
+          if alarm:name:contains(ship:name) { // if alarm is owned by current ship.            
+            // if not Maneuver node, stop after warp.
+            if alarm:type:contains("Maneuver") {
+              // proceed with Maneuver Alarms
+              set kacProceedExec to true. 
+              set alarmDone to true.
+            } else set kacProceedExec to false.  // not a maneuver alarm
+            // warp
+            uiDebug("warp to " + alarmTime + " seconds").
+            run warp(alarmTime).
+            if (_clobber or kacProceedExec) deletealarm(alarm:id). // delete alarm if clobber or maneuver.
+            if not(_clobber) set alarmDone to true. // stop loop if not clobber.
+          } else { // if this alarm is for another ship, halt.
+            set kacProceedExec to false.
+            set alarmDone to true.
+            uiBanner("Node Fault", "KAC alarm for another ship detected. Node Execution halted").
+          }          
+        } else { // else node is earliest, proceed.
+          set alarmDone to true.
+          set kacProceedExec to true.
+        }
+        wait 0.
+      }
+    } // else no alarms, proceed.
+  } // else no KAC, proceed.
+  // return true if safe to proceed with node exec. 
+  set utilNodeFault to not(kacProceedExec).  
+  return kacProceedExec.
+}
+
+function utilGrav {
+  return body:mu / ((ship:altitude + body:radius)^2).
+}
+
+// checks to see if ship has RCS.
+function utilHasRCS {
+  local _hasRCS to false.
+  for _part in ship:parts {
+    for _mod in _part:modules {
+      if _mod:contains("rcs") {
+        set _hasRCS to true.
+      }
+    }
+  }
+  return _hasRCS.
+}
+
+function utilAvailTWR {
+  return ship:availablethrust / ship:mass.
+}
+
+function utilNodeDob {
+  parameter _n.
+  return (_n:deltav:mag / nodeAccel).
+}
+
+function utilNoRCSCancelVelocity {
+  parameter _nodeNd.
+  parameter _residualSpeed is 0.01.
+  parameter _MaximumTime is 15.
+  // if no, RCS perform correction burn
+  local startTime to time:seconds.
+  uiDebug("performing correction burn").
+  local finalNdMin to _nodeNd:deltav.
+  local finalNd0 to _nodeNd:deltav.
+  local finalNdDone to false.
+  lock steering to _nodeNd:deltav.
+  wait until (vang(finalNdMin, ship:facing:vector) < 0.5 OR (time:seconds >= (startTime+_MaximumTime))).
+  until finalNdDone {
+    wait 0.001.
+    set finalNdMin to _nodeNd:deltav:mag.
+    lock throttle to max(min(_nodeNd:deltav:mag/utilAvailTWR(), 0.5),0.5/utilAvailTWR()).
+    set finalNdDone to ( (vdot(finalNd0, _nodeNd:deltav) < 0) or 
+                         (_nodeNd:deltav:mag > (finalNdMin + _residualSpeed)) ).
+  }
+  lock throttle to 0.
+}
